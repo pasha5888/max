@@ -82,7 +82,11 @@ try {
   }
 
 
-if (origin !== `https://${host}`) {
+
+const expectedOrigin =
+  "https://new-bungee-git-probungee-recovery-todaymygoodday-ux.vercel.app";
+
+if (origin !== expectedOrigin) {
   console.error("Telegram setup: origin mismatch");
   return new NextResponse("Forbidden", { status: 403 });
 }
