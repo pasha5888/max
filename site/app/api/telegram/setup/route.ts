@@ -83,13 +83,17 @@ try {
 
 
 
-const expectedOrigin =
-  "https://new-bungee-git-probungee-recovery-todaymygoodday-ux.vercel.app";
 
-if (origin !== expectedOrigin) {
-  console.error("Telegram setup: origin mismatch");
+const fetchSite = request.headers.get("sec-fetch-site");
+
+if (
+  fetchSite !== "same-origin" ||
+  !origin.startsWith("https://")
+) {
+  console.error("Telegram setup: request origin rejected");
   return new NextResponse("Forbidden", { status: 403 });
 }
+
 
     const form = await request.formData();
     const supplied = String(form.get("key") || "");
