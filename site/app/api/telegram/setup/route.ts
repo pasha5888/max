@@ -21,27 +21,24 @@ function page(message = "") {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PROBUNGEE — Telegram</title>
+<title>PROBUNGEE — Telegram Setup</title>
 </head>
 <body style="font-family:Arial,sans-serif;max-width:540px;margin:60px auto;padding:24px">
 <h1>PROBUNGEE</h1>
 <h2>Подключение Telegram</h2>
-<p>Введите пароль настройки из Vercel.</p>
-
+<p>Введите пароль администратора из Vercel.</p>
 <form method="POST" action="/api/telegram/setup">
 <input type="password" name="key" required
  autocomplete="off"
  placeholder="Пароль администратора"
  style="padding:14px;width:90%;margin-bottom:16px">
-
 <button type="submit"
  style="background:#0879ca;color:white;border:0;border-radius:8px;padding:15px 25px;cursor:pointer">
 Подключить Telegram
 </button>
 </form>
-
 <p>${message}</p>
-<p>Временная страница. После подключения её необходимо удалить.</p>
+<p>Временная страница настройки.</p>
 </body>
 </html>`;
 
@@ -93,90 +90,78 @@ export async function POST(request: NextRequest) {
 
     const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
     const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || "";
 
     if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) {
-      console.error("Telegram setup: invalid token format");
-      return page(
-        "Ошибка: неправильный формат TELEGRAM_BOT_TOKEN."
-      );
+      return page("Неверный формат токена Telegram.");
     }
 
     if (!/^[A-Za-z0-9_-]{1,256}$/.test(secret)) {
-      console.error("Telegram setup: invalid webhook secret");
+      return page("Неверный формат секрета Telegram.");
+    }
+
+    if (!bypass) {
       return page(
-        "Ошибка: неправильный формат TELEGRAM_WEBHOOK_SECRET."
+        "Ключ Vercel Bypass недоступен. Требуется новое Preview-развёртывание."
       );
     }
 
-    const apiUrl =
-      "https://api.telegram.org/bot" +
-      token +
-      "/setWebhook";
+    // Создаём адрес webhook с доступом через Vercel Protection.
+    const webhookUrl = new URL(WEBHOOK_URL);
+    webhookUrl.searchParams.set(
+      "x-vercel-protection-bypass",
+      bypass
+    );
 
-    let response: Response;
-
-    try {
-      response = await fetch(apiUrl, {
+    const response = await fetch(
+      "https://api.telegram.org/bot" + token + "/setWebhook",
+      {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          url: WEBHOOK_URL,
+          url: webhookUrl.toString(),
           secret_token: secret,
           allowed_updates: ["message"],
           drop_pending_updates: false
         }),
         cache: "no-store",
         signal: AbortSignal.timeout(12000)
-      });
-    } catch (error) {
-      console.error(
-        "Telegram setup: network error",
-        error instanceof Error ? error.name : "Unknown"
-      );
+      }
+    );
 
-      return page(
-        "Ошибка соединения с Telegram API. Проверьте журнал Vercel."
-      );
-    }
-
-    let result: {
+    const result: {
       ok?: boolean;
       error_code?: number;
-    };
-
-    try {
-      result = await response.json();
-    } catch {
-      return page(
-        "Telegram вернул ответ в неправильном формате."
-      );
-    }
+    } = await response.json();
 
     if (!response.ok || result.ok !== true) {
       console.error(
-        "Telegram setup: API rejected",
+        "Telegram webhook rejected:",
         result.error_code || response.status
       );
 
       return page(
-        "Telegram отклонил запрос. Код ошибки: " +
+        "Telegram отклонил запрос. Код: " +
         String(result.error_code || response.status)
       );
     }
 
-    console.info("PROBUNGEE webhook registered");
+    console.info("PROBUNGEE webhook registered with Vercel bypass");
 
     return page(
-      "✅ Webhook успешно зарегистрирован! Проверьте бота @Probungee_bot."
+      "✅ Telegram подключён! Webhook зарегистрирован с Vercel Bypass. Отправьте /start боту @Probungee_bot."
     );
 
-  } catch {
-    console.error("Telegram setup: request processing failed");
+  } catch (error) {
+    console.error(
+      "Telegram setup failed:",
+      error instanceof Error ? error.name : "Unknown"
+    );
 
     return page(
-      "Ошибка обработки запроса. Проверьте журнал Vercel."
+      "Ошибка подключения. Проверьте Vercel Logs."
     );
   }
 }
