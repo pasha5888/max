@@ -1,0 +1,2 @@
+import Consultation from '../../components/Consultation';
+export default function Page(){return <main id="main"><section className="subpage-hero section-wrap"><span className="eyebrow">PROBUNGEE · contacts</span><h1>Контакты PROBUNGEE</h1><p className="lead">Обсудим оборудование и обучение</p><p>Телефон: +7 977 518-54-14. Telegram и MAX по этому номеру. Email для обращений: probungee@yandex.ru.</p><a className="button" href="/contacts#consultation">Получить консультацию ↗</a></section> <Consultation/></main>}
