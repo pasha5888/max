@@ -71,15 +71,26 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Unavailable", { status: 404 });
   }
 
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
+ 
+const origin = request.headers.get("origin");
+const host = request.headers.get("host");
 
-  try {
-    if (!origin || !host ||
-        new URL(origin).protocol !== "https:" ||
-        new URL(origin).host !== host) {
-      return new NextResponse("Forbidden", { status: 403 });
-    }
+try {
+  if (!origin || !host) {
+    console.error("Telegram setup: missing origin or host");
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  const originUrl = new URL(origin);
+
+  if (
+    originUrl.protocol !== "https:" ||
+    originUrl.host !== host
+  ) {
+    console.error("Telegram setup: origin mismatch");
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
 
     const form = await request.formData();
     const supplied = String(form.get("key") || "");
