@@ -136,7 +136,14 @@ try {
     return page(
       "✅ Webhook зарегистрирован. Теперь проверьте бота в Telegram."
     );
-  } catch {
-    return page("Ошибка соединения. Проверьте настройки и журнал Vercel.");
-  }
+ 
+} catch (error) {
+  console.error(
+    "Telegram setup failed:",
+    error instanceof Error ? error.message : "Unknown error"
+  );
+
+  return page(
+    "Ошибка соединения. Проверьте журнал Vercel."
+  );
 }
