@@ -81,16 +81,11 @@ try {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const originUrl = new URL(origin);
 
-  if (
-    originUrl.protocol !== "https:" ||
-    originUrl.host !== host
-  ) {
-    console.error("Telegram setup: origin mismatch");
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
+if (origin !== `https://${host}`) {
+  console.error("Telegram setup: origin mismatch");
+  return new NextResponse("Forbidden", { status: 403 });
+}
 
     const form = await request.formData();
     const supplied = String(form.get("key") || "");
