@@ -103,6 +103,12 @@ try {
     }
 
     const token = process.env.TELEGRAM_BOT_TOKEN;
+      if (!token || !/^\d+:[A-Za-z0-9_-]+$/.test(token)) {
+      console.error("Telegram setup: invalid bot token format");
+      return page(
+        "Неверный формат TELEGRAM_BOT_TOKEN в Vercel. Проверьте значение."
+      );
+    }
     const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
     const chatId = process.env.TELEGRAM_CHAT_ID;
 
