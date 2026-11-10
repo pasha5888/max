@@ -13,7 +13,7 @@ type Message = {
 };
 type Update = {
   message?: Message;
-  callback_query?: { id: string; data?: string; message?: Message };
+  callback_query?: { id: string; data?: string; from: User; message?: Message };
 };
 
 const preview = () =>
@@ -61,8 +61,8 @@ function showMenu(id: string) {
   );
 }
 
-// Для анкеты используем штатный Telegram Reply: данные предыдущих шагов
-// находятся в тексте сообщения, на которое клиент отвечает.
+// Состояние анкеты переносится в текст сообщения, на которое отвечает клиент.
+// Для телефонов используем отдельный ForceReply, для отказа от телефона — кнопку.
 function ask(id: string, prompt: string) {
   return send(id, prompt, { reply_markup: { force_reply: true, selective: true } });
 }
@@ -108,6 +108,55 @@ function roomSummary(prompt: string) {
   );
 }
 
+const contactChoices = {
+  inline_keyboard: [
+    [{ text: "📞 Указать номер телефона", callback_data: "contact_phone" }],
+    [{ text: "💬 Общаться только в Telegram", callback_data: "contact_telegram" }],
+  ],
+};
+
+function contactQuestion(prompt: string) {
+  return (
+    "PROBUNGEE | ЗАЛ | 5/5\n" +
+    "Город: " + field(prompt, "Город") + "\n" +
+    "Размеры: " + field(prompt, "Размеры") + "\n" +
+    "Препятствия: " + field(prompt, "Препятствия") + "\n" +
+    "Пожелания: " + field(prompt, "Пожелания") + "\n\n" +
+    "Последний шаг: как с вами связаться?\n" +
+    "Телефон указывать необязательно. Вы можете остаться на связи в Telegram."
+  );
+}
+
+function readPhone(input: string): string | null {
+  // Разрешаем слова рядом с номером, пробелы, скобки и дефисы.
+  // Извлекаем только один телефон, а не любые цифры из сообщения.
+  const matches = input.match(/(?:\+?\d[\d\s()\-]{8,}\d)/g) || [];
+  const valid = matches.map((candidate) => {
+    const normalized = candidate.replace(/[^\d+]/g, "");
+    const digits = normalized.replace(/\D/g, "");
+    return /^\+?\d{10,15}$/.test(normalized) && digits.length >= 10 && digits.length <= 15
+      ? normalized
+      : null;
+  }).filter((v): v is string => v !== null);
+  return valid.length === 1 ? valid[0] : null;
+}
+
+async function completeRoom(
+  adminId: string,
+  client: Message,
+  question: string,
+  contact: string
+) {
+  await notifyAdmin(adminId, client, roomSummary(question) + "\nСпособ связи: " + contact);
+  await send(
+    String(client.chat.id),
+    "Спасибо! Заявка отправлена специалисту PROBUNGEE.\n\n" +
+    "Мы обсудим предварительный подбор после проверки креплений и зон движения. " +
+    "Можете продолжать общение здесь, в Telegram.",
+    { reply_markup: menu }
+  );
+}
+
 async function questionnaire(adminId: string, msg: Message, text: string): Promise<boolean> {
   const prompt = msg.reply_to_message?.text || "";
   if (!msg.reply_to_message?.from?.is_bot || !prompt) return false;
@@ -141,28 +190,41 @@ async function questionnaire(adminId: string, msg: Message, text: string): Promi
     return true;
   }
   if (prompt.startsWith("PROBUNGEE | ЗАЛ | 4/5")) {
-    await ask(id, "PROBUNGEE | ЗАЛ | 5/5\nГород: " + field(prompt, "Город") +
+    const summary =
+      "PROBUNGEE | ЗАЛ | 5/5\nГород: " + field(prompt, "Город") +
       "\nРазмеры: " + field(prompt, "Размеры") +
       "\nПрепятствия: " + field(prompt, "Препятствия") +
-      "\nПожелания: " + answer.slice(0, 350).replace(/\n/g, " ") +
-      "\n\nПоследний шаг: как с вами связаться?\n\n" +
-      "Можно добровольно указать номер телефона или написать «Пропустить», " +
-      "чтобы общаться только здесь, в Telegram.\n" +
-      "Номер нужен только для связи по вашему запросу.");
+      "\nПожелания: " + answer.slice(0, 350).replace(/\n/g, " ");
+    await send(id, contactQuestion(summary), { reply_markup: contactChoices });
     return true;
   }
+  // Поддержка текстового ответа на старое сообщение 5/5.
   if (prompt.startsWith("PROBUNGEE | ЗАЛ | 5/5")) {
     const skip = /^(пропустить|нет|telegram|телеграм|без телефона)$/i.test(answer);
-    const cleaned = answer.replace(/[\s()\-]/g, "");
-    if (!skip && !/^\+?\d{10,15}$/.test(cleaned)) {
-      await ask(id, prompt + "\n\nВведите телефон в формате +79991234567 либо «Пропустить».");
+    if (skip) {
+      await completeRoom(adminId, msg, prompt, "Только Telegram (номер не предоставлен)");
       return true;
     }
-    const contact = skip ? "Только Telegram (телефон не предоставлен)" : answer;
-    await notifyAdmin(adminId, msg, roomSummary(prompt) + "\nСпособ связи: " + contact);
-    await send(id, "Спасибо! Заявка направлена специалисту PROBUNGEE.\n\n" +
-      "Предварительный подбор обсудим после проверки конструкции креплений и зон движения. " +
-      "Можно продолжить общение здесь, в Telegram.", { reply_markup: menu });
+    const phone = readPhone(answer);
+    if (!phone) {
+      await ask(id, prompt + "\n\nУкажите номер, например +79991234567, либо напишите «Пропустить».");
+      return true;
+    }
+    await completeRoom(adminId, msg, prompt, "Телефон: " + phone);
+    return true;
+  }
+  if (prompt.startsWith("PROBUNGEE | ТЕЛЕФОН | 5/5")) {
+    const skip = /^(пропустить|нет|telegram|телеграм|без телефона)$/i.test(answer);
+    if (skip) {
+      await completeRoom(adminId, msg, prompt, "Только Telegram (номер не предоставлен)");
+      return true;
+    }
+    const phone = readPhone(answer);
+    if (!phone) {
+      await ask(id, prompt + "\n\nНомер не распознан. Например: +79991234567. Или «Пропустить».");
+      return true;
+    }
+    await completeRoom(adminId, msg, prompt, "Телефон: " + phone);
     return true;
   }
 
@@ -226,15 +288,39 @@ export async function POST(request: NextRequest) {
       const chat = callback.message?.chat;
       if (!chat || chat.type !== "private") return NextResponse.json({ ok: true });
       const id = String(chat.id);
-      if (id === adminId) await send(adminId, "Меню для клиентов. Чтобы ответить, выберите «Ответить» на уведомлении.");
-      else if (callback.data === "equipment") await ask(id, "PROBUNGEE | ЗАЛ | 1/5\n\nВ каком городе планируется использовать оборудование?");
-      else if (callback.data === "roi") await ask(id, "PROBUNGEE | ОКУПАЕМОСТЬ\n\n" +
-        "Напишите три суммы в рублях через точку с запятой:\n" +
-        "1. Первоначальные вложения\n2. Выручка за месяц\n3. Расходы за месяц\n" +
-        "Например: 600000; 200000; 120000");
-      else if (callback.data === "training") await ask(id, "PROBUNGEE | ОБУЧЕНИЕ\n\n" +
-        "Напишите город, сколько тренеров нужно обучить и когда планируете начать.");
-      else if (callback.data === "manager") await send(id, "Напишите вопрос обычным сообщением. Специалист ответит здесь.");
+      if (id === adminId) {
+        await send(adminId, "Меню для клиентов. Чтобы ответить, выберите «Ответить» на уведомлении.");
+      } else if (callback.data === "contact_telegram" &&
+                 callback.message?.text?.startsWith("PROBUNGEE | ЗАЛ | 5/5")) {
+        await completeRoom(adminId, { ...callback.message, from: callback.from }, callback.message.text,
+          "Только Telegram (номер не предоставлен)");
+        await telegram("editMessageReplyMarkup", { chat_id: id,
+          message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+      } else if (callback.data === "contact_phone" &&
+                 callback.message?.text?.startsWith("PROBUNGEE | ЗАЛ | 5/5")) {
+        const previous = callback.message.text;
+        const summary = "PROBUNGEE | ТЕЛЕФОН | 5/5\nГород: " + field(previous, "Город") +
+          "\nРазмеры: " + field(previous, "Размеры") +
+          "\nПрепятствия: " + field(previous, "Препятствия") +
+          "\nПожелания: " + field(previous, "Пожелания");
+        await ask(id, summary +
+          "\n\nВведите номер в ответном сообщении. Например: +79991234567. " +
+          "Можно написать: «Позвоните мне +79991234567» или «Пропустить».");
+        await telegram("editMessageReplyMarkup", { chat_id: id,
+          message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+      } else if (callback.data === "equipment") {
+        await ask(id, "PROBUNGEE | ЗАЛ | 1/5\n\nВ каком городе планируется использовать оборудование?");
+      } else if (callback.data === "roi") {
+        await ask(id, "PROBUNGEE | ОКУПАЕМОСТЬ\n\n" +
+          "Напишите три суммы в рублях через точку с запятой:\n" +
+          "1. Первоначальные вложения\n2. Выручка за месяц\n3. Расходы за месяц\n" +
+          "Например: 600000; 200000; 120000");
+      } else if (callback.data === "training") {
+        await ask(id, "PROBUNGEE | ОБУЧЕНИЕ\n\n" +
+          "Напишите город, сколько тренеров нужно обучить и когда планируете начать.");
+      } else if (callback.data === "manager") {
+        await send(id, "Напишите вопрос обычным сообщением. Специалист ответит здесь.");
+      }
       return NextResponse.json({ ok: true });
     }
 
