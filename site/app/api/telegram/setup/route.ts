@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           url: webhookUrl.toString(),
           secret_token: secret,
-          allowed_updates: ["message"],
+allowed_updates: ["message", "callback_query"],
           drop_pending_updates: false
         }),
         cache: "no-store",
